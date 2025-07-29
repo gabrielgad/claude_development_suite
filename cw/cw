@@ -1,0 +1,388 @@
+#!/bin/bash
+# cw - Claude Worktree Manager
+# Shell-agnostic script supporting both interactive and non-interactive modes
+
+set -e  # Exit on error
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Helper functions
+log_info() {
+    echo -e "${BLUE}Info:${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}Success:${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}Warning:${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}Error:${NC} $1" >&2
+}
+
+# Check if running interactively
+is_interactive() {
+    [[ -t 0 && -t 1 ]]
+}
+
+# Prompt with default value
+prompt_with_default() {
+    local prompt="$1"
+    local default="$2"
+    local result
+    
+    if [[ -n "$default" ]]; then
+        read -p "$prompt (default: $default): " result
+        echo "${result:-$default}"
+    else
+        read -p "$prompt: " result
+        echo "$result"
+    fi
+}
+
+# Prompt yes/no with default
+prompt_yn() {
+    local prompt="$1"
+    local default="$2"
+    local result
+    
+    if [[ "$default" == "y" ]]; then
+        read -p "$prompt (Y/n): " result
+        case "${result:-y}" in
+            [Yy]*) echo "y";;
+            *) echo "n";;
+        esac
+    else
+        read -p "$prompt (y/N): " result
+        case "$result" in
+            [Yy]*) echo "y";;
+            *) echo "n";;
+        esac
+    fi
+}
+
+# Generate safe directory name from string
+sanitize_name() {
+    echo "$1" | sed 's|.*/||' | tr '[:upper:]' '[:lower:]' | tr -d ' ' | sed 's/[^a-z0-9-]/-/g'
+}
+
+# Main worktree creation function
+cw_make() {
+    local dir_name="$1"
+    local branch_name="$2" 
+    local base_branch="$3"
+    local install_deps="$4"
+    local copy_env="$5"
+    local claude_prompt="$6"
+    
+    # Check if we're in a git repository
+    if ! git rev-parse --git-dir >/dev/null 2>&1; then
+        log_error "Not in a git repository"
+        exit 1
+    fi
+    
+    # Get current context
+    local repo_name=$(basename "$(pwd)")
+    local parent_dir=$(dirname "$(pwd)")
+    local current_branch=$(git branch --show-current 2>/dev/null || echo "main")
+    
+    log_info "Current repository: $repo_name"
+    log_info "Current branch: $current_branch"
+    echo
+    
+    # Interactive mode - prompt for missing values
+    if is_interactive && [[ $# -eq 0 ]]; then
+        log_info "Interactive mode - press Ctrl+C to cancel"
+        echo
+        
+        dir_name=$(prompt_with_default "Enter directory name for the worktree" "")
+        while [[ -z "$dir_name" ]]; do
+            log_error "Directory name cannot be empty"
+            dir_name=$(prompt_with_default "Enter directory name for the worktree" "")
+        done
+        
+        branch_name=$(prompt_with_default "Enter branch name (e.g., feature/my-feature)" "feature/$(sanitize_name "$dir_name")")
+        while [[ -z "$branch_name" ]]; do
+            log_error "Branch name cannot be empty"
+            branch_name=$(prompt_with_default "Enter branch name" "feature/$(sanitize_name "$dir_name")")
+        done
+        
+        base_branch=$(prompt_with_default "Base branch" "$current_branch")
+        
+        # Check for package.json
+        if [[ -f "package.json" ]]; then
+            install_deps=$(prompt_yn "Install npm dependencies?" "y")
+        else
+            install_deps="n"
+        fi
+        
+        # Check for .env file
+        if [[ -f ".env" ]]; then
+            copy_env=$(prompt_yn "Copy .env file from main repository?" "y")
+        else
+            copy_env="n"
+        fi
+        
+        claude_prompt=$(prompt_with_default "Enter initial prompt for Claude (optional)" "")
+        
+    else
+        # Non-interactive mode - apply defaults for missing values
+        if [[ -z "$base_branch" ]]; then
+            base_branch="$current_branch"
+        fi
+        
+        if [[ -z "$dir_name" ]]; then
+            if [[ -n "$branch_name" ]]; then
+                dir_name=$(sanitize_name "$branch_name")
+            else
+                dir_name="session-$(date +%Y%m%d-%H%M%S)"
+            fi
+        fi
+        
+        if [[ -z "$branch_name" ]]; then
+            branch_name="feature/cm-$(sanitize_name "$dir_name")"
+        fi
+        
+        # Auto-detect environment preferences if not specified
+        if [[ -z "$install_deps" ]]; then
+            if [[ -f "package.json" ]]; then
+                install_deps="y"
+            else
+                install_deps="n"
+            fi
+        fi
+        
+        if [[ -z "$copy_env" ]]; then
+            if [[ -f ".env" ]]; then
+                copy_env="y"  
+            else
+                copy_env="n"
+            fi
+        fi
+    fi
+    
+    # Construct worktree path
+    local worktree_path="$parent_dir/$repo_name-$dir_name"
+    
+    # Validate inputs
+    if [[ -d "$worktree_path" ]]; then
+        log_error "Directory $worktree_path already exists"
+        exit 1
+    fi
+    
+    if git show-ref --verify --quiet "refs/heads/$branch_name" 2>/dev/null; then
+        log_error "Branch $branch_name already exists"
+        exit 1
+    fi
+    
+    if ! git show-ref --verify --quiet "refs/heads/$base_branch" 2>/dev/null; then
+        log_error "Base branch $base_branch does not exist"
+        exit 1
+    fi
+    
+    # Show what we're about to do
+    echo
+    log_info "Creating worktree with the following settings:"
+    echo "  Directory: $worktree_path"
+    echo "  Branch: $branch_name (from $base_branch)"
+    echo "  Install deps: $install_deps"
+    echo "  Copy .env: $copy_env"
+    [[ -n "$claude_prompt" ]] && echo "  Claude prompt: $claude_prompt"
+    echo
+    
+    # Create worktree
+    log_info "Creating git worktree..."
+    if ! git worktree add "$worktree_path" -b "$branch_name" "$base_branch" 2>/dev/null; then
+        log_error "Failed to create worktree"
+        exit 1
+    fi
+    
+    # Navigate to worktree  
+    cd "$worktree_path"
+    log_success "Worktree created: $(pwd)"
+    
+    # Handle npm dependencies
+    if [[ -f "package.json" && "$install_deps" == "y" ]]; then
+        log_info "Installing npm dependencies..."
+        if command -v npm >/dev/null 2>&1; then
+            if npm install --silent >/dev/null 2>&1; then
+                log_success "Dependencies installed"
+            else
+                log_warning "npm install failed"
+            fi
+        else
+            log_warning "npm not found, skipping dependency installation"
+        fi
+    fi
+    
+    # Handle .env file
+    local original_env="$parent_dir/$repo_name/.env"
+    if [[ -f "$original_env" && "$copy_env" == "y" ]]; then
+        cp "$original_env" .env
+        log_success "Copied .env file"
+    fi
+    
+    # Output success info for cm to parse
+    echo "CW_SUCCESS:worktree_path=$worktree_path"
+    echo "CW_SUCCESS:branch_name=$branch_name"
+    echo "CW_SUCCESS:repo_name=$repo_name"
+    
+    # Start Claude Code
+    echo
+    log_info "Starting Claude Code..."
+    if command -v claude >/dev/null 2>&1; then
+        if [[ -n "$claude_prompt" ]]; then
+            exec claude "$claude_prompt"
+        else
+            exec claude
+        fi
+    else
+        log_warning "claude command not found"
+        log_info "Please install Claude Code CLI or start it manually in: $worktree_path"
+        echo
+        log_success "Worktree setup complete!"
+    fi
+}
+
+# List worktrees
+cw_list() {
+    if ! git rev-parse --git-dir >/dev/null 2>&1; then
+        log_error "Not in a git repository"
+        exit 1
+    fi
+    
+    log_info "Git worktrees:"
+    git worktree list
+}
+
+# Remove worktree
+cw_remove() {
+    if ! git rev-parse --git-dir >/dev/null 2>&1; then
+        log_error "Not in a git repository"
+        exit 1
+    fi
+    
+    log_info "Available worktrees:"
+    git worktree list
+    echo
+    
+    local worktree_path
+    if is_interactive; then
+        read -p "Enter worktree path to remove: " worktree_path
+        if [[ -z "$worktree_path" ]]; then
+            log_error "Worktree path cannot be empty"
+            exit 1
+        fi
+        
+        local confirm=$(prompt_yn "Remove worktree at $worktree_path?" "n")
+        if [[ "$confirm" != "y" ]]; then
+            log_info "Cancelled"
+            exit 0
+        fi
+    else
+        worktree_path="$1"
+        if [[ -z "$worktree_path" ]]; then
+            log_error "Worktree path required in non-interactive mode"
+            exit 1
+        fi
+    fi
+    
+    if git worktree remove "$worktree_path" 2>/dev/null; then
+        log_success "Removed worktree: $worktree_path"
+    else
+        log_error "Failed to remove worktree: $worktree_path"
+        exit 1
+    fi
+}
+
+# Prune worktrees
+cw_prune() {
+    if ! git rev-parse --git-dir >/dev/null 2>&1; then
+        log_error "Not in a git repository"
+        exit 1
+    fi
+    
+    log_info "Pruning stale worktree references..."
+    git worktree prune
+    log_success "Prune complete"
+}
+
+# Show help
+cw_help() {
+    cat << 'EOF'
+cw - Claude Worktree Manager
+
+USAGE:
+    cw [COMMAND] [OPTIONS...]
+
+COMMANDS:
+    make, create, new    Create new worktree and start Claude (default)
+    list, ls            List all worktrees  
+    remove, rm          Remove a worktree
+    prune, clean        Clean up stale worktree references
+    help, -h, --help    Show this help
+
+NON-INTERACTIVE MODE:
+    cw make [dir_name] [branch_name] [base_branch] [install_deps] [copy_env] [claude_prompt]
+
+ARGUMENTS (all optional):
+    dir_name      Directory name for worktree (default: auto-generated)
+    branch_name   Git branch name (default: feature/cm-<dir_name>)  
+    base_branch   Base branch to branch from (default: current branch)
+    install_deps  Install npm deps: y/n (default: auto-detect)
+    copy_env      Copy .env file: y/n (default: auto-detect)
+    claude_prompt Initial Claude prompt (default: empty)
+
+EXAMPLES:
+    cw                                          # Interactive mode
+    cw make                                     # Auto-generated session  
+    cw make auth                               # Custom directory name
+    cw make auth feature/auth-system           # Custom dir and branch
+    cw make api feature/api main y y "help"    # All parameters specified
+    cw list                                     # Show all worktrees
+    cw remove                                   # Interactive removal
+
+INTEGRATION:
+    This script works with cm (Claude Manager) for automated session creation
+    while maintaining full compatibility with interactive manual usage.
+EOF
+}
+
+# Main command dispatcher
+main() {
+    case "${1:-make}" in
+        make|create|new|"")
+            shift 2>/dev/null || true
+            cw_make "$@"
+            ;;
+        list|ls)
+            cw_list
+            ;;
+        remove|delete|rm)
+            shift
+            cw_remove "$@"
+            ;;
+        prune|clean)
+            cw_prune
+            ;;
+        help|-h|--help)
+            cw_help
+            ;;
+        *)
+            log_error "Unknown command: $1"
+            echo "Use 'cw help' for usage information" >&2
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function with all arguments
+main "$@"

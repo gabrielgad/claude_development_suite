@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +15,69 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/shirou/gopsutil/v3/process"
 )
+
+// Config represents application configuration
+type Config struct {
+	MonitorInterval time.Duration `json:"monitor_interval"`
+	MaxSessions     int           `json:"max_sessions"`
+	LogLevel        string        `json:"log_level"`
+	Theme           Theme         `json:"theme"`
+}
+
+type Theme struct {
+	ActiveColor   string `json:"active_color"`
+	InactiveColor string `json:"inactive_color"`
+	SelectedColor string `json:"selected_color"`
+	HeaderColor   string `json:"header_color"`
+	FooterColor   string `json:"footer_color"`
+}
+
+func LoadConfig() (*Config, error) {
+	configPath := filepath.Join(os.Getenv("HOME"), ".config", "claude_manager", "config.json")
+
+	// Default config
+	config := &Config{
+		MonitorInterval: 2 * time.Second,
+		MaxSessions:     50,
+		LogLevel:        "info",
+		Theme: Theme{
+			ActiveColor:   "#00ff00",
+			InactiveColor: "#ff0000",
+			SelectedColor: "#444444",
+			HeaderColor:   "#00ff00",
+			FooterColor:   "#888888",
+		},
+	}
+
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// Create default config
+		return config, SaveConfig(config)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return config, err
+	}
+
+	err = json.Unmarshal(data, config)
+	return config, err
+}
+
+func SaveConfig(config *Config) error {
+	configDir := filepath.Join(os.Getenv("HOME"), ".config", "claude_manager")
+	err := os.MkdirAll(configDir, 0755)
+	if err != nil {
+		return err
+	}
+
+	configPath := filepath.Join(configDir, "config.json")
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(configPath, data, 0644)
+}
 
 // Session represents a Claude Code session
 type Session struct {
@@ -66,6 +128,7 @@ type Model struct {
 	selectedIndex int
 	currentView   ViewMode
 	updateChan    chan SessionUpdate
+	config        *Config
 	quitting      bool
 	windowWidth   int
 	windowHeight  int
@@ -104,11 +167,11 @@ type ProcessMonitor struct {
 	cancel     context.CancelFunc
 }
 
-func NewProcessMonitor(updateChan chan<- SessionUpdate) *ProcessMonitor {
+func NewProcessMonitor(updateChan chan<- SessionUpdate, interval time.Duration) *ProcessMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &ProcessMonitor{
 		updateChan: updateChan,
-		interval:   2 * time.Second,
+		interval:   interval,
 		ctx:        ctx,
 		cancel:     cancel,
 	}
@@ -146,7 +209,8 @@ func (pm *ProcessMonitor) scanProcesses() {
 			continue
 		}
 
-		if !strings.Contains(strings.ToLower(name), "claude") {
+		// More specific matching - only exact "claude" process name
+		if strings.ToLower(name) != "claude" {
 			continue
 		}
 
@@ -251,7 +315,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedIndex < len(m.sessions)-1 {
 			m.selectedIndex++
 		}
-	case "k", "up":
+	case "up":
 		if m.selectedIndex > 0 {
 			m.selectedIndex--
 		}
@@ -272,7 +336,7 @@ func (m Model) renderSessionsView() string {
 	// Header
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#00ff00")).
+		Foreground(lipgloss.Color(m.config.Theme.HeaderColor)).
 		Padding(0, 1)
 
 	b.WriteString(headerStyle.Render("Claude Manager - Sessions"))
@@ -282,12 +346,12 @@ func (m Model) renderSessionsView() string {
 	for i, session := range m.sessions {
 		style := lipgloss.NewStyle().Padding(0, 1)
 		if i == m.selectedIndex {
-			style = style.Background(lipgloss.Color("#444444"))
+			style = style.Background(lipgloss.Color(m.config.Theme.SelectedColor))
 		}
 
-		statusColor := "#ff0000" // red for inactive
+		statusColor := m.config.Theme.InactiveColor
 		if session.Status == StatusActive {
-			statusColor = "#00ff00" // green for active
+			statusColor = m.config.Theme.ActiveColor
 		}
 
 		line := fmt.Sprintf("● %-20s [%-15s] %s %s",
@@ -311,7 +375,7 @@ func (m Model) renderSessionsView() string {
 	// Footer
 	b.WriteString("\n")
 	footerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#888888")).
+		Foreground(lipgloss.Color(m.config.Theme.FooterColor)).
 		Padding(0, 1)
 
 	b.WriteString(footerStyle.Render("Controls: ↑/↓ navigate, Enter details, r refresh, n new, k kill, q quit"))
@@ -331,7 +395,7 @@ func (m Model) renderDetailsView() string {
 	// Header
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#00ff00")).
+		Foreground(lipgloss.Color(m.config.Theme.HeaderColor)).
 		Padding(0, 1)
 
 	b.WriteString(headerStyle.Render(fmt.Sprintf("Session Details: %s", session.Name)))
@@ -363,7 +427,7 @@ func (m Model) renderDetailsView() string {
 	// Footer
 	b.WriteString("\n")
 	footerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#888888")).
+		Foreground(lipgloss.Color(m.config.Theme.FooterColor)).
 		Padding(0, 1)
 
 	b.WriteString(footerStyle.Render("Press Enter to return to sessions list"))
@@ -374,7 +438,7 @@ func (m Model) renderDetailsView() string {
 // Command handlers
 func (m Model) startProcessMonitor() tea.Cmd {
 	return func() tea.Msg {
-		monitor := NewProcessMonitor(m.updateChan)
+		monitor := NewProcessMonitor(m.updateChan, m.config.MonitorInterval)
 		go monitor.Start()
 		return SessionUpdate{Type: UpdateSessionStatus} // Trigger initial scan
 	}
@@ -389,13 +453,48 @@ func (m Model) refreshSessions() tea.Cmd {
 
 func (m Model) createNewSession() tea.Cmd {
 	return func() tea.Msg {
-		// Execute cw command in background
-		cmd := exec.Command("fish", "-c", "cw make")
-		err := cmd.Start()
-		if err != nil {
-			return SessionUpdate{Error: fmt.Errorf("failed to create new session: %w", err)}
+		// Check if we're in a git repository first
+		if _, err := exec.Command("git", "rev-parse", "--git-dir").Output(); err != nil {
+			return SessionUpdate{Error: fmt.Errorf("not in a git repository - navigate to a git project first")}
 		}
-		return SessionUpdate{Type: UpdateSessionStatus} // Refresh after creation
+
+		// Generate sensible defaults for non-interactive mode
+		timestamp := time.Now().Format("20060102-1504")
+		dirName := fmt.Sprintf("cm-%s", timestamp)
+		branchName := fmt.Sprintf("feature/cm-session-%s", timestamp)
+		
+		// Auto-detect environment preferences
+		installDeps := "n"
+		if _, err := os.Stat("package.json"); err == nil {
+			installDeps = "y"
+		}
+		
+		copyEnv := "n"
+		if _, err := os.Stat(".env"); err == nil {
+			copyEnv = "y"
+		}
+		
+		// Call the new shell-agnostic cw script
+		cwPath := "/home/ggadbois/projects/tooling/claude_development_suite-week1/cw/cw"
+		cmd := exec.Command(cwPath, "make", dirName, branchName, "", installDeps, copyEnv, "")
+		
+		// Set working directory
+		if wd, err := os.Getwd(); err == nil {
+			cmd.Dir = wd
+		}
+		
+		// Run in background since it will start Claude
+		go func() {
+			if err := cmd.Start(); err != nil {
+				log.Printf("Failed to create session: %v", err)
+			} else {
+				log.Printf("Creating new session: %s in branch %s", dirName, branchName)
+			}
+		}()
+		
+		return SessionUpdate{
+			Type: UpdateSessionStatus, // Trigger refresh to show new session
+		}
 	}
 }
 
@@ -457,12 +556,20 @@ func (m Model) handleSessionUpdate(update SessionUpdate) (tea.Model, tea.Cmd) {
 		// For now, just log errors
 		// In the future, we could show them in a status bar
 		log.Printf("Error: %v", update.Error)
+		// Also store the error for potential display
+		// Could be shown in a status bar or notification area
 	}
 
 	return m, nil
 }
 
 func main() {
+	// Load configuration
+	config, err := LoadConfig()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
 	// Create channels for communication
 	updateChan := make(chan SessionUpdate, 100)
 
@@ -471,6 +578,7 @@ func main() {
 		sessions:    make([]Session, 0),
 		currentView: ViewSessions,
 		updateChan:  updateChan,
+		config:      config,
 	}
 
 	// Create program
