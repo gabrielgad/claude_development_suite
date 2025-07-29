@@ -235,14 +235,22 @@ cw_make() {
     echo "CW_SUCCESS:branch_name=$branch_name"
     echo "CW_SUCCESS:repo_name=$repo_name"
     
-    # Start Claude Code
+    # Start Claude Code (unless --no-claude flag is used)
+    if [[ "$1" == "--no-claude" ]] || [[ "$7" == "--no-claude" ]]; then
+        echo
+        log_success "Worktree setup complete!"
+        log_info "To start Claude, run: cd $worktree_path && claude"
+        exit 0
+    fi
+    
     echo
     log_info "Starting Claude Code..."
     if command -v claude >/dev/null 2>&1; then
         if [[ -n "$claude_prompt" ]]; then
             exec claude "$claude_prompt"
         else
-            exec claude
+            # Start Claude with a default interactive prompt to avoid --print issues
+            exec claude "Hello! I'm ready to help with this project."
         fi
     else
         log_warning "claude command not found"

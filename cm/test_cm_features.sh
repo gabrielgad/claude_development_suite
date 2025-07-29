@@ -126,7 +126,7 @@ echo "-------------------"
 test_feature "Config directory creation" "mkdir -p ~/.config/claude_manager && echo '{}' > ~/.config/claude_manager/test.json && rm ~/.config/claude_manager/test.json" "pass"
 
 # Test binary compilation
-test_feature "Binary compiles successfully" "cd /home/ggadbois/projects/tooling/claude_development_suite-week1/cm && go build -o test_binary main.go && rm test_binary" "pass"
+test_feature "Binary compiles successfully" "cd /home/ggadbois/projects/tooling/claude_development_suite/cm && go build -o test_binary main.go && rm test_binary" "pass"
 
 echo ""
 echo "========================================"

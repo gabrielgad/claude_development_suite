@@ -1,13 +1,15 @@
 # Claude Development Suite
 
-A comprehensive toolset for managing multiple Claude Code sessions and git worktrees for parallel development workflows.
+A web-based development environment for managing multiple Claude Code sessions with git worktrees and real-time terminal interfaces.
 
 ## Overview
 
-This suite consists of two main tools:
+This suite provides:
 
-1. **`cw` (Claude Worktree)** - Fish shell function for creating isolated git worktrees with Claude Code sessions
-2. **`cm` (Claude Manager)** - Go-based TUI for monitoring and managing multiple Claude Code sessions
+1. **Web Dashboard** - Browser-based session management and monitoring
+2. **Terminal Interface** - Full terminal emulator (xterm.js) for direct Claude interaction  
+3. **Git Integration** - Automated worktree creation and branch management
+4. **Permission System** - Centralized approval/denial of Claude requests
 
 ## Architecture
 
@@ -37,35 +39,38 @@ This suite consists of two main tools:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## Prerequisites
+
+- **Go 1.21+** - For building the web server
+- **Modern Browser** - Chrome, Firefox, Safari, Edge
+- **Git** - For worktree management  
+- **Claude Code CLI** - The claude command-line tool
+
 ## Quick Start
 
-### 1. Install `cw` (Claude Worktree)
+### 1. Build the Web Server
 ```bash
-# The cw function is already installed in your Fish config
-cw help
+cd cm
+make build
 ```
 
-### 2. Create a new worktree
+### 2. Start the Server
 ```bash
-# Navigate to your main project
-cd /path/to/your/project
-
-# Create a new worktree for feature development
-cw make
-# or just
-cw
+./build/cm serve
+# Server starts on http://localhost:8080
 ```
 
-### 3. Install `cm` (Claude Manager)
+### 3. Open Dashboard
 ```bash
-# Build and install the Go binary
-cd claude_manager
-go build -o ~/.local/bin/cm
+# Open browser to http://localhost:8080
+# See session dashboard with create/manage options
 ```
 
-### 4. Monitor your sessions
+### 4. Create Claude Session
 ```bash
-cm
+# Click "New Session" in web interface
+# Creates git worktree + starts Claude in web terminal
+# Interact directly through browser terminal
 ```
 
 ## Components
