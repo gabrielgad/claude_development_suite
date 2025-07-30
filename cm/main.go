@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -97,6 +98,7 @@ func startWebServer(port int) {
 	// Set up HTTP routes
 	http.HandleFunc("/", handleHome)
 	http.HandleFunc("/favicon.ico", handleFavicon)
+	http.HandleFunc("/terminal/", handleTerminal)
 	http.HandleFunc("/api/sessions", handleSessions)
 	http.HandleFunc("/api/sessions/create", handleCreateSession)
 	http.HandleFunc("/api/sessions/kill", handleKillSession)
@@ -144,998 +146,26 @@ func startWebServer(port int) {
 func ensureWebDirectory() error {
 	webDir := "web"
 	staticDir := filepath.Join(webDir, "static")
+	templatesDir := filepath.Join(webDir, "templates")
 
 	// Create directories
 	if err := os.MkdirAll(staticDir, 0755); err != nil {
 		return err
 	}
-
-	// Create HTML template
-	htmlTemplate := `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Claude Manager - Web Terminal</title>
-    <link rel="stylesheet" href="/static/app.css">
-    <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css" />
-</head>
-<body>
-    <div id="app">
-        <header>
-            <h1>🚀 Claude Manager</h1>
-            <div class="controls">
-                <button id="new-session">New Session</button>
-                <button id="refresh">Refresh</button>
-            </div>
-        </header>
-        
-        <div class="main-content">
-            <div class="sidebar">
-                <h3>Sessions</h3>
-                <div id="sessions-list">
-                    <div class="no-sessions">No active sessions</div>
-                </div>
-            </div>
-            
-            <div class="terminal-area">
-                <div id="terminal-tabs"></div>
-                <div id="terminal-container">
-                    <div class="welcome">
-                        <h2>Welcome to Claude Manager</h2>
-                        <p>Create a new session to get started with Claude Code in your browser.</p>
-                        <button class="create-session-btn" onclick="app.showSessionCreator()">Create First Session</button>
-                    </div>
-                    
-                    <div id="session-creator" class="session-creator" style="display: none;">
-                        <div class="creator-content">
-                            <h3>Create New Session</h3>
-                            
-                            <div class="form-group">
-                                <label>Session Name:</label>
-                                <input type="text" id="session-name" placeholder="e.g., auth-feature, api-refactor">
-                            </div>
-                            
-                            <div class="form-group">
-                                <label>Repository Location:</label>
-                                <div class="directory-browser">
-                                    <div class="current-path">
-                                        <span id="current-path-text">Loading...</span>
-                                        <button type="button" id="go-home" class="path-btn">🏠 Home</button>
-                                        <button type="button" id="go-root" class="path-btn">📁 Root</button>
-                                    </div>
-                                    <div class="directory-list" id="directory-list">
-                                        <div class="loading">Loading directories...</div>
-                                    </div>
-                                    <div class="selected-repo">
-                                        <strong>Selected:</strong> <span id="selected-repo-path">None selected</span>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label>
-                                    <input type="checkbox" id="use-worktree" checked> 
-                                    Create Git Worktree (Recommended)
-                                </label>
-                                <small>Creates an isolated copy for parallel development</small>
-                            </div>
-                            
-                            <div id="worktree-options" class="form-group">
-                                <label>Branch Name:</label>
-                                <input type="text" id="branch-name" placeholder="feature/session-name (auto-generated)">
-                                
-                                <label>Base Branch:</label>
-                                <input type="text" id="base-branch" placeholder="main">
-                            </div>
-                            
-                            <div class="creator-actions">
-                                <button class="btn-primary" onclick="app.createSessionFromForm()">Create Session</button>
-                                <button class="btn-secondary" onclick="app.hideSessionCreator()">Cancel</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <script src="/static/app.js"></script>
-</body>
-</html>`
-
-	cssTemplate := `* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: #1e1e1e;
-    color: #ffffff;
-    height: 100vh;
-    overflow: hidden;
-}
-
-#app {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-}
-
-header {
-    background: #2d2d2d;
-    padding: 1rem;
-    border-bottom: 1px solid #404040;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-header h1 {
-    color: #00ff00;
-    font-size: 1.5rem;
-}
-
-.controls button {
-    background: #007acc;
-    color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    margin-left: 0.5rem;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.2s;
-}
-
-.controls button:hover {
-    background: #005999;
-}
-
-.main-content {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-}
-
-.sidebar {
-    width: 300px;
-    background: #252526;
-    border-right: 1px solid #404040;
-    padding: 1rem;
-    overflow-y: auto;
-}
-
-.sidebar h3 {
-    color: #cccccc;
-    margin-bottom: 1rem;
-    font-size: 1.1rem;
-}
-
-.session-item {
-    background: #2d2d2d;
-    padding: 0.75rem;
-    margin-bottom: 0.5rem;
-    border-radius: 4px;
-    cursor: pointer;
-    border-left: 3px solid #007acc;
-    transition: background 0.2s;
-}
-
-.session-item:hover {
-    background: #404040;
-}
-
-.session-item.active {
-    background: #404040;
-    border-left-color: #00ff00;
-}
-
-.session-name {
-    font-weight: bold;
-    color: #ffffff;
-}
-
-.session-details {
-    font-size: 0.85rem;
-    color: #cccccc;
-    margin-top: 0.25rem;
-}
-
-.session-status {
-    display: inline-block;
-    padding: 0.2rem 0.5rem;
-    border-radius: 3px;
-    font-size: 0.75rem;
-    margin-top: 0.25rem;
-}
-
-.status-active {
-    background: #4caf50;
-    color: white;
-}
-
-.status-idle {
-    background: #ff9800;
-    color: white;
-}
-
-.status-starting {
-    background: #2196f3;
-    color: white;
-}
-
-.status-error {
-    background: #f44336;
-    color: white;
-}
-
-.terminal-area {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-}
-
-#terminal-tabs {
-    background: #2d2d2d;
-    border-bottom: 1px solid #404040;
-    padding: 0;
-    display: none;
-}
-
-.terminal-tab {
-    display: inline-block;
-    padding: 0.75rem 1rem;
-    background: #1e1e1e;
-    color: #cccccc;
-    border-right: 1px solid #404040;
-    cursor: pointer;
-    transition: background 0.2s;
-}
-
-.terminal-tab.active {
-    background: #2d2d2d;
-    color: #ffffff;
-}
-
-.terminal-tab:hover {
-    background: #404040;
-}
-
-#terminal-container {
-    flex: 1;
-    position: relative;
-}
-
-.terminal {
-    width: 100%;
-    height: 100%;
-    display: none;
-}
-
-.terminal.active {
-    display: block;
-}
-
-.welcome {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    text-align: center;
-}
-
-.welcome h2 {
-    color: #00ff00;
-    margin-bottom: 1rem;
-}
-
-.welcome p {
-    color: #cccccc;
-    margin-bottom: 2rem;
-    max-width: 400px;
-}
-
-.create-session-btn {
-    background: #00ff00;
-    color: #1e1e1e;
-    border: none;
-    padding: 1rem 2rem;
-    border-radius: 6px;
-    font-size: 1.1rem;
-    font-weight: bold;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.create-session-btn:hover {
-    background: #00cc00;
-    transform: translateY(-2px);
-}
-
-.no-sessions {
-    color: #666666;
-    font-style: italic;
-    text-align: center;
-    padding: 2rem 0;
-}
-
-.session-actions {
-    margin-top: 0.5rem;
-}
-
-.kill-btn {
-    background: #dc3545;
-    color: white;
-    border: none;
-    padding: 0.3rem 0.6rem;
-    border-radius: 3px;
-    font-size: 0.75rem;
-    cursor: pointer;
-}
-
-.kill-btn:hover {
-    background: #c82333;
-}
-
-/* Session Creator Styles */
-.session-creator {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.8);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
-
-.creator-content {
-    background: #2d2d2d;
-    padding: 2rem;
-    border-radius: 8px;
-    width: 500px;
-    max-height: 80vh;
-    overflow-y: auto;
-}
-
-.creator-content h3 {
-    color: #00ff00;
-    margin-bottom: 1.5rem;
-    text-align: center;
-}
-
-.form-group {
-    margin-bottom: 1rem;
-}
-
-.form-group label {
-    display: block;
-    color: #cccccc;
-    margin-bottom: 0.5rem;
-    font-size: 0.9rem;
-}
-
-.form-group input[type="text"],
-.form-group select {
-    width: 100%;
-    padding: 0.75rem;
-    background: #1e1e1e;
-    border: 1px solid #404040;
-    border-radius: 4px;
-    color: #ffffff;
-    font-size: 0.9rem;
-}
-
-.form-group input[type="text"]:focus,
-.form-group select:focus {
-    outline: none;
-    border-color: #007acc;
-}
-
-.form-group input[type="checkbox"] {
-    margin-right: 0.5rem;
-}
-
-.form-group small {
-    display: block;
-    color: #888888;
-    font-size: 0.8rem;
-    margin-top: 0.25rem;
-}
-
-.creator-actions {
-    display: flex;
-    gap: 1rem;
-    margin-top: 2rem;
-    justify-content: center;
-}
-
-.btn-primary {
-    background: #00ff00;
-    color: #1e1e1e;
-    border: none;
-    padding: 0.75rem 1.5rem;
-    border-radius: 4px;
-    font-weight: bold;
-    cursor: pointer;
-    transition: background 0.2s;
-}
-
-.btn-primary:hover {
-    background: #00cc00;
-}
-
-.btn-secondary {
-    background: #404040;
-    color: #ffffff;
-    border: none;
-    padding: 0.75rem 1.5rem;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.2s;
-}
-
-.btn-secondary:hover {
-    background: #555555;
-}
-
-.repo-item {
-    display: flex;
-    align-items: center;
-    padding: 0.5rem;
-    border-bottom: 1px solid #404040;
-}
-
-.repo-name {
-    font-weight: bold;
-    color: #ffffff;
-}
-
-.repo-path {
-    font-size: 0.8rem;
-    color: #888888;
-    margin-left: 0.5rem;
-}
-
-.repo-branch {
-    font-size: 0.8rem;
-    color: #00ff00;
-    margin-left: auto;
-}
-
-/* Directory Browser Styles */
-.directory-browser {
-    border: 1px solid #404040;
-    border-radius: 4px;
-    background: #1e1e1e;
-    overflow: hidden;
-}
-
-.current-path {
-    background: #2d2d2d;
-    padding: 0.75rem;
-    border-bottom: 1px solid #404040;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.current-path span {
-    flex: 1;
-    color: #cccccc;
-    font-family: monospace;
-    font-size: 0.9rem;
-}
-
-.path-btn {
-    background: #404040;
-    color: #cccccc;
-    border: none;
-    padding: 0.25rem 0.5rem;
-    border-radius: 3px;
-    font-size: 0.8rem;
-    cursor: pointer;
-    transition: background 0.2s;
-}
-
-.path-btn:hover {
-    background: #555555;
-}
-
-.directory-list {
-    max-height: 200px;
-    overflow-y: auto;
-    background: #1e1e1e;
-}
-
-.directory-item {
-    display: flex;
-    align-items: center;
-    padding: 0.5rem 0.75rem;
-    cursor: pointer;
-    border-bottom: 1px solid #2d2d2d;
-    transition: background 0.2s;
-}
-
-.directory-item:hover {
-    background: #2d2d2d;
-}
-
-.directory-item.selected {
-    background: #007acc;
-    color: #ffffff;
-}
-
-.directory-item.git-repo {
-    background: rgba(0, 255, 0, 0.1);
-    border-left: 3px solid #00ff00;
-}
-
-.directory-item.git-repo.selected {
-    background: #007acc;
-}
-
-.directory-icon {
-    margin-right: 0.5rem;
-    font-size: 1rem;
-}
-
-.directory-name {
-    flex: 1;
-    color: #cccccc;
-}
-
-.git-indicator {
-    font-size: 0.8rem;
-    color: #00ff00;
-    margin-left: 0.5rem;
-}
-
-.selected-repo {
-    padding: 0.75rem;
-    background: #2d2d2d;
-    border-top: 1px solid #404040;
-    color: #cccccc;
-    font-size: 0.9rem;
-}
-
-.selected-repo span {
-    color: #00ff00;
-    font-family: monospace;
-}
-
-.loading {
-    padding: 1rem;
-    text-align: center;
-    color: #888888;
-    font-style: italic;
-}`
-
-	jsTemplate := `class ClaudeManager {
-    constructor() {
-        this.sessions = new Map();
-        this.activeSessions = [];
-        this.currentSession = null;
-        this.currentPath = '';
-        this.selectedRepoPath = '';
-        this.init();
-    }
-
-    async init() {
-        this.bindEvents();
-        await this.loadSessions();
-        this.startSessionPolling();
-    }
-
-    bindEvents() {
-        document.getElementById('new-session').addEventListener('click', () => this.showSessionCreator());
-        document.getElementById('refresh').addEventListener('click', () => this.loadSessions());
-        
-        // Session creator events
-        document.getElementById('use-worktree').addEventListener('change', (e) => {
-            document.getElementById('worktree-options').style.display = e.target.checked ? 'block' : 'none';
-        });
-        
-        document.getElementById('session-name').addEventListener('input', (e) => {
-            const cleanName = this.sanitizeForGit(e.target.value);
-            const branchInput = document.getElementById('branch-name');
-            
-            // Update placeholder with sanitized name
-            if (!branchInput.value || branchInput.placeholder.includes('auto-generated')) {
-                branchInput.placeholder = ` + "`" + `feature/${cleanName || 'session-name'} (auto-generated)` + "`" + `;
-            }
-            
-            // Show user if their input was changed
-            if (e.target.value && cleanName !== e.target.value.toLowerCase()) {
-                e.target.style.borderColor = '#ff9800';
-                e.target.title = ` + "`" + `Will be cleaned to: ${cleanName}` + "`" + `;
-            } else {
-                e.target.style.borderColor = '#404040';
-                e.target.title = '';
-            }
-        });
-        
-        document.getElementById('branch-name').addEventListener('input', (e) => {
-            const cleanBranch = this.sanitizeForGit(e.target.value);
-            
-            // Show user if their input was changed
-            if (e.target.value && cleanBranch !== e.target.value) {
-                e.target.style.borderColor = '#ff9800';
-                e.target.title = ` + "`" + `Will be cleaned to: ${cleanBranch}` + "`" + `;
-            } else {
-                e.target.style.borderColor = '#404040';
-                e.target.title = '';
-            }
-        });
-
-        // Directory browser events
-        document.getElementById('go-home').addEventListener('click', () => this.navigateToHome());
-        document.getElementById('go-root').addEventListener('click', () => this.navigateToRoot());
-    }
-
-    async loadSessions() {
-        try {
-            const response = await fetch('/api/sessions');
-            const sessions = await response.json();
-            this.activeSessions = sessions || [];
-            this.renderSessions();
-        } catch (error) {
-            console.error('Failed to load sessions:', error);
-        }
-    }
-
-    renderSessions() {
-        const sessionsList = document.getElementById('sessions-list');
-        
-        if (this.activeSessions.length === 0) {
-            sessionsList.innerHTML = '<div class="no-sessions">No active sessions</div>';
-            return;
-        }
-
-        sessionsList.innerHTML = this.activeSessions.map(session => {
-            let statusClass = 'status-idle';
-            if (session.status === 'active') statusClass = 'status-active';
-            else if (session.status === 'starting') statusClass = 'status-starting';
-            else if (session.status === 'error') statusClass = 'status-error';
-            
-            return ` + "`" + `
-                <div class="session-item" data-session-id="${session.id}" onclick="app.selectSession('${session.id}')">
-                    <div class="session-name">${session.name}</div>
-                    <div class="session-details">
-                        <div>${session.path}</div>
-                        <div>Branch: ${session.branch}</div>
-                        <span class="session-status ${statusClass}">${session.status}</span>
-                    </div>
-                    <div class="session-actions">
-                        <button class="kill-btn" onclick="app.killSession('${session.id}', event)">Kill</button>
-                    </div>
-                </div>
-            ` + "`" + `;
-        }).join('');
-    }
-
-    async loadDirectories(path = '') {
-        try {
-            const url = path ? ` + "`" + `/api/directories?path=${encodeURIComponent(path)}` + "`" + ` : '/api/directories';
-            const response = await fetch(url);
-            const data = await response.json();
-            
-            this.currentPath = data.currentPath;
-            this.renderDirectories(data.items);
-            document.getElementById('current-path-text').textContent = this.currentPath;
-        } catch (error) {
-            console.error('Failed to load directories:', error);
-            document.getElementById('directory-list').innerHTML = '<div class="loading">Error loading directories</div>';
-        }
-    }
-
-    renderDirectories(items) {
-        const container = document.getElementById('directory-list');
-        
-        if (items.length === 0) {
-            container.innerHTML = '<div class="loading">No directories found</div>';
-            return;
-        }
-
-        container.innerHTML = items.map(item => {
-            const icon = item.name === '..' ? '⬆️' : (item.isGitRepo ? '📦' : '📁');
-            const gitIndicator = item.isGitRepo ? '<span class="git-indicator">GIT</span>' : '';
-            const classes = ['directory-item'];
-            
-            if (item.isGitRepo) classes.push('git-repo');
-            if (item.path === this.selectedRepoPath) classes.push('selected');
-            
-            return ` + "`" + `
-                <div class="${classes.join(' ')}" data-path="${item.path}" onclick="app.handleDirectoryClick('${item.path}', ${item.isGitRepo})">
-                    <span class="directory-icon">${icon}</span>
-                    <span class="directory-name">${item.name}</span>
-                    ${gitIndicator}
-                </div>
-            ` + "`" + `;
-        }).join('');
-    }
-
-    handleDirectoryClick(path, isGitRepo) {
-        if (isGitRepo) {
-            // Select this git repository
-            this.selectedRepoPath = path;
-            document.getElementById('selected-repo-path').textContent = path;
-            
-            // Update selection visual
-            document.querySelectorAll('.directory-item').forEach(item => {
-                item.classList.remove('selected');
-            });
-            document.querySelector(` + "`" + `[data-path="${path}"]` + "`" + `).classList.add('selected');
-        } else {
-            // Navigate to this directory
-            this.loadDirectories(path);
-        }
-    }
-
-    async navigateToHome() {
-        this.loadDirectories(); // Empty path defaults to home
-    }
-
-    async navigateToRoot() {
-        this.loadDirectories('/');
-    }
-
-    // Client-side sanitization to match server-side logic
-    sanitizeForGit(input) {
-        if (!input) return 'unnamed';
-        
-        // Convert to lowercase
-        let result = input.toLowerCase();
-        
-        // Replace spaces and invalid characters with hyphens
-        result = result.replace(/[^a-z0-9\-_./]/g, '-');
-        
-        // Replace multiple consecutive hyphens with single hyphen
-        result = result.replace(/-+/g, '-');
-        
-        // Remove leading/trailing hyphens and dots
-        result = result.replace(/^[-.]|[-.]$/g, '');
-        
-        // Ensure it's not empty after cleaning
-        if (!result) {
-            result = 'branch-' + Date.now();
-        }
-        
-        // Ensure max length
-        if (result.length > 50) {
-            result = result.substring(0, 50).replace(/-+$/, '');
-        }
-        
-        return result;
-    }
-
-    showSessionCreator() {
-        document.getElementById('session-creator').style.display = 'flex';
-        document.getElementById('session-name').focus();
-        // Load directory browser starting from home
-        this.loadDirectories();
-    }
-
-    hideSessionCreator() {
-        document.getElementById('session-creator').style.display = 'none';
-        // Reset form
-        document.getElementById('session-name').value = '';
-        document.getElementById('branch-name').value = '';
-        document.getElementById('base-branch').value = '';
-        document.getElementById('use-worktree').checked = true;
-        this.selectedRepoPath = '';
-        document.getElementById('selected-repo-path').textContent = 'None selected';
-    }
-
-    async createSessionFromForm() {
-        const name = document.getElementById('session-name').value.trim();
-        const repoPath = this.selectedRepoPath;
-        const branchName = document.getElementById('branch-name').value.trim();
-        const baseBranch = document.getElementById('base-branch').value.trim() || 'main';
-        const useWorktree = document.getElementById('use-worktree').checked;
-
-        if (!name) {
-            alert('Please enter a session name');
-            return;
-        }
-
-        if (!repoPath) {
-            alert('Please select a repository from the directory browser');
-            return;
-        }
-
-        try {
-            const response = await fetch('/api/sessions/create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name,
-                    repoPath,
-                    branchName: branchName || ` + "`" + `feature/${name}` + "`" + `,
-                    baseBranch,
-                    useWorktree
-                })
-            });
-
-            if (response.ok) {
-                const session = await response.json();
-                this.hideSessionCreator();
-                await this.loadSessions();
-                this.selectSession(session.id);
-            } else {
-                const errorText = await response.text();
-                alert('Failed to create session: ' + errorText);
-            }
-        } catch (error) {
-            console.error('Failed to create session:', error);
-            alert('Failed to create session: ' + error.message);
-        }
-    }
-
-    // Legacy method for compatibility
-    async createSession() {
-        this.showSessionCreator();
-    }
-
-    async killSession(sessionId, event) {
-        event.stopPropagation();
-        
-        if (!confirm('Are you sure you want to kill this session?')) {
-            return;
-        }
-
-        try {
-            const response = await fetch('/api/sessions/kill', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sessionId })
-            });
-
-            if (response.ok) {
-                this.sessions.delete(sessionId);
-                await this.loadSessions();
-                
-                if (this.currentSession === sessionId) {
-                    this.currentSession = null;
-                    this.showWelcome();
-                }
-            } else {
-                alert('Failed to kill session');
-            }
-        } catch (error) {
-            console.error('Failed to kill session:', error);
-            alert('Failed to kill session');
-        }
-    }
-
-    selectSession(sessionId) {
-        this.currentSession = sessionId;
-        
-        // Update UI
-        document.querySelectorAll('.session-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        document.querySelector(` + "`" + `[data-session-id="${sessionId}"]` + "`" + `).classList.add('active');
-        
-        this.connectToSession(sessionId);
-    }
-
-    connectToSession(sessionId) {
-        // Hide welcome screen
-        const welcome = document.querySelector('.welcome');
-        if (welcome) welcome.style.display = 'none';
-
-        // Create or show terminal
-        let terminalDiv = document.getElementById(` + "`" + `terminal-${sessionId}` + "`" + `);
-        if (!terminalDiv) {
-            terminalDiv = document.createElement('div');
-            terminalDiv.id = ` + "`" + `terminal-${sessionId}` + "`" + `;
-            terminalDiv.className = 'terminal';
-            document.getElementById('terminal-container').appendChild(terminalDiv);
-
-            // Create xterm terminal
-            const terminal = new Terminal({
-                cursorBlink: true,
-                theme: {
-                    background: '#1e1e1e',
-                    foreground: '#ffffff',
-                    cursor: '#00ff00'
-                }
-            });
-
-            terminal.open(terminalDiv);
-            this.sessions.set(sessionId, { terminal, div: terminalDiv });
-
-            // Connect WebSocket
-            this.connectWebSocket(sessionId, terminal);
-        }
-
-        // Show active terminal
-        document.querySelectorAll('.terminal').forEach(t => t.classList.remove('active'));
-        terminalDiv.classList.add('active');
-        
-        // Focus terminal
-        const session = this.sessions.get(sessionId);
-        if (session) {
-            session.terminal.focus();
-        }
-    }
-
-    connectWebSocket(sessionId, terminal) {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = ` + "`" + `${protocol}//${window.location.host}/ws/${sessionId}` + "`" + `;
-        
-        const ws = new WebSocket(wsUrl);
-        
-        ws.onopen = () => {
-            console.log(` + "`" + `Connected to session ${sessionId}` + "`" + `);
-            
-            // Send terminal input to WebSocket
-            terminal.onData(data => {
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(data);
-                }
-            });
-        };
-
-        ws.onmessage = (event) => {
-            terminal.write(event.data);
-        };
-
-        ws.onclose = () => {
-            console.log(` + "`" + `Disconnected from session ${sessionId}` + "`" + `);
-            terminal.write('\r\n[Connection closed]\r\n');
-        };
-
-        ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            terminal.write('\r\n[Connection error]\r\n');
-        };
-
-        // Store WebSocket reference
-        const session = this.sessions.get(sessionId);
-        if (session) {
-            session.websocket = ws;
-        }
-    }
-
-    showWelcome() {
-        document.querySelectorAll('.terminal').forEach(t => t.classList.remove('active'));
-        const welcome = document.querySelector('.welcome');
-        if (welcome) welcome.style.display = 'flex';
-    }
-
-    startSessionPolling() {
-        setInterval(() => {
-            this.loadSessions();
-        }, 5000); // Poll every 5 seconds
-    }
-}
-
-// Global functions
-function createSession() {
-    app.createSession();
-}
-
-// Initialize app
-const app = new ClaudeManager();`
-
-	// Write files
-	files := map[string]string{
-		filepath.Join(webDir, "index.html"): htmlTemplate,
-		filepath.Join(staticDir, "app.css"): cssTemplate,
-		filepath.Join(staticDir, "app.js"):  jsTemplate,
+	if err := os.MkdirAll(templatesDir, 0755); err != nil {
+		return err
 	}
 
-	for path, content := range files {
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-			return err
+	// Verify that external files exist, create them if they don't
+	files := map[string]string{
+		filepath.Join(templatesDir, "index.html"): "",
+		filepath.Join(staticDir, "app.css"):       "",
+		filepath.Join(staticDir, "app.js"):        "",
+	}
+
+	for path := range files {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return fmt.Errorf("required web file missing: %s", path)
 		}
 	}
 
@@ -1147,7 +177,185 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	http.ServeFile(w, r, "web/index.html")
+	http.ServeFile(w, r, "web/templates/index.html")
+}
+
+func handleTerminal(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Terminal request: %s", r.URL.Path)
+	
+	// Extract session ID from URL path
+	sessionID := r.URL.Path[len("/terminal/"):]
+	log.Printf("Extracted session ID: %s", sessionID)
+	
+	if sessionID == "" {
+		http.Error(w, "Session ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Find session info
+	sessionManager.mu.RLock()
+	ptySession, exists := sessionManager.sessions[sessionID]
+	sessionManager.mu.RUnlock()
+
+	if !exists {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Prepare template data
+	data := struct {
+		SessionID   string
+		SessionName string
+		SessionPath string
+	}{
+		SessionID:   sessionID,
+		SessionName: ptySession.Session.Name,
+		SessionPath: ptySession.Session.Path,
+	}
+
+	// Parse and execute template
+	tmpl := `<!DOCTYPE html>
+<html>
+<head>
+    <title>{{.SessionName}} - Terminal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1e1e1e;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        #terminal {
+            margin: 20px 0;
+            border: 1px solid #444;
+        }
+        .header {
+            background: #2d2d2d;
+            padding: 10px;
+            border-radius: 4px 4px 0 0;
+            border: 1px solid #444;
+            border-bottom: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h3 {
+            margin: 0;
+            color: #00ff00;
+        }
+        .back-btn {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .back-btn:hover {
+            background: #005999;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h3>{{.SessionName}} - {{.SessionPath}}</h3>
+        <button class="back-btn" onclick="window.location.href='/'">Back to Manager</button>
+    </div>
+    <div id="terminal"></div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script>
+        let terminal;
+        let websocket;
+
+        // Initialize terminal - exact same as our working test
+        document.addEventListener('DOMContentLoaded', function() {
+            terminal = new Terminal({
+                cursorBlink: true,
+                theme: {
+                    background: '#1e1e1e',
+                    foreground: '#ffffff',
+                    cursor: '#00ff00',
+                    black: '#000000',
+                    red: '#cd3131',
+                    green: '#0dbc79',
+                    yellow: '#e5e510',
+                    blue: '#2472c8',
+                    magenta: '#bc3fbc',
+                    cyan: '#11a8cd',
+                    white: '#e5e5e5',
+                    brightBlack: '#666666',
+                    brightRed: '#f14c4c',
+                    brightGreen: '#23d18b',
+                    brightYellow: '#f5f543',
+                    brightBlue: '#3b8eea',
+                    brightMagenta: '#d670d6',
+                    brightCyan: '#29b8db',
+                    brightWhite: '#e5e5e5'
+                },
+                fontSize: 14,
+                fontFamily: 'Consolas, "Liberation Mono", Menlo, Courier, monospace'
+            });
+
+            terminal.open(document.getElementById('terminal'));
+            terminal.write('Terminal initialized successfully!\r\n');
+            terminal.write('Connecting to Claude session...\r\n');
+            
+            // Connect WebSocket - same as working test
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = protocol + '//' + window.location.host + '/ws/{{.SessionID}}';
+            
+            websocket = new WebSocket(wsUrl);
+            
+            websocket.onopen = () => {
+                terminal.write('\r\n✅ Connected to Claude session!\r\n');
+                
+                // Send terminal input to WebSocket
+                terminal.onData(data => {
+                    if (websocket.readyState === WebSocket.OPEN) {
+                        websocket.send(data);
+                    }
+                });
+            };
+            
+            websocket.onmessage = (event) => {
+                terminal.write(event.data);
+            };
+            
+            websocket.onclose = () => {
+                terminal.write('\r\n⚠️ Connection closed\r\n');
+            };
+            
+            websocket.onerror = (error) => {
+                terminal.write('\r\n❌ Connection error\r\n');
+            };
+            
+            // Focus terminal
+            setTimeout(() => terminal.focus(), 100);
+        });
+
+        // Listen for messages from parent window (for control buttons)
+        window.addEventListener('message', function(event) {
+            if (event.data.type === 'sendInput' && websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(event.data.data);
+                terminal.write(event.data.data);
+            }
+        });
+    </script>
+</body>
+</html>`
+
+	// Execute template
+	t, err := template.New("terminal").Parse(tmpl)
+	if err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	t.Execute(w, data)
 }
 
 func handleFavicon(w http.ResponseWriter, r *http.Request) {
@@ -1246,8 +454,21 @@ func createWorktreeForSession(repoPath, sessionName, branchName, baseBranch stri
 		return "", fmt.Errorf("worktree directory already exists: %s", worktreePath)
 	}
 
-	// Create the worktree with new branch
-	cmd := exec.Command("git", "worktree", "add", "-b", cleanBranchName, worktreePath, baseBranch)
+	// Check if branch already exists
+	checkCmd := exec.Command("git", "branch", "--list", cleanBranchName)
+	checkCmd.Dir = repoPath
+	checkOutput, _ := checkCmd.Output()
+	
+	var cmd *exec.Cmd
+	if len(strings.TrimSpace(string(checkOutput))) > 0 {
+		// Branch exists, use existing branch
+		log.Printf("Branch '%s' already exists, using existing branch", cleanBranchName)
+		cmd = exec.Command("git", "worktree", "add", worktreePath, cleanBranchName)
+	} else {
+		// Branch doesn't exist, create new branch
+		cmd = exec.Command("git", "worktree", "add", "-b", cleanBranchName, worktreePath, baseBranch)
+	}
+	
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1583,6 +804,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+
 	// Keep connection alive
 	select {}
 }
@@ -1628,10 +850,13 @@ func createPTYSession(name, path string) (*PTYSession, error) {
 
 		// Check if claude command exists
 		if _, err := exec.LookPath("claude"); err == nil {
-			cmd = exec.Command("claude", "--help")
+			// Start interactive Claude session
+			log.Printf("Starting Claude session for %s", sessionID)
+			cmd = exec.Command("claude")
 		} else {
 			// Fallback to bash shell for testing
-			cmd = exec.Command("bash")
+			log.Printf("Claude not found, starting bash shell for session %s", sessionID)
+			cmd = exec.Command("bash", "-i") // Interactive bash
 		}
 
 		cmd.Dir = path
@@ -1650,6 +875,26 @@ func createPTYSession(name, path string) (*PTYSession, error) {
 		ptySession.Cmd = cmd
 		session.PID = cmd.Process.Pid
 		session.Status = "active"
+
+		// Send welcome message and test commands to terminal
+		go func() {
+			time.Sleep(100 * time.Millisecond) // Give PTY time to initialize
+			welcome := fmt.Sprintf("\r\n\033[32m🚀 Claude Manager Session Started\033[0m\r\n")
+			welcome += fmt.Sprintf("\033[90mSession: %s\033[0m\r\n", session.Name)
+			welcome += fmt.Sprintf("\033[90mDirectory: %s\033[0m\r\n", session.Path)
+			welcome += fmt.Sprintf("\033[90mBranch: %s\033[0m\r\n", session.Branch)
+			welcome += "\r\n"
+			ptySession.PTY.Write([]byte(welcome))
+			
+			// Send a test command to trigger shell output
+			time.Sleep(200 * time.Millisecond)
+			if strings.Contains(cmd.Path, "bash") {
+				// For bash, send a simple command to get a prompt
+				ptySession.PTY.Write([]byte("echo 'Terminal ready. Type commands:'\r\n"))
+				time.Sleep(100 * time.Millisecond)
+				ptySession.PTY.Write([]byte("pwd\r\n")) // Show current directory
+			}
+		}()
 
 		// Start output forwarder
 		go ptySession.forwardOutput()

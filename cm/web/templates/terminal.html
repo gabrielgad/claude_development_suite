@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{.SessionName}} - Terminal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1e1e1e;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        #terminal {
+            margin: 20px 0;
+            border: 1px solid #444;
+        }
+        .header {
+            background: #2d2d2d;
+            padding: 10px;
+            border-radius: 4px 4px 0 0;
+            border: 1px solid #444;
+            border-bottom: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h3 {
+            margin: 0;
+            color: #00ff00;
+        }
+        .back-btn {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .back-btn:hover {
+            background: #005999;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h3>{{.SessionName}} - {{.SessionPath}}</h3>
+        <button class="back-btn" onclick="window.location.href='/'">Back to Manager</button>
+    </div>
+    <div id="terminal"></div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script>
+        let terminal;
+        let websocket;
+
+        // Initialize terminal - exact same as our working test
+        document.addEventListener('DOMContentLoaded', function() {
+            terminal = new Terminal({
+                cursorBlink: true,
+                theme: {
+                    background: '#1e1e1e',
+                    foreground: '#ffffff',
+                    cursor: '#00ff00',
+                    black: '#000000',
+                    red: '#cd3131',
+                    green: '#0dbc79',
+                    yellow: '#e5e510',
+                    blue: '#2472c8',
+                    magenta: '#bc3fbc',
+                    cyan: '#11a8cd',
+                    white: '#e5e5e5',
+                    brightBlack: '#666666',
+                    brightRed: '#f14c4c',
+                    brightGreen: '#23d18b',
+                    brightYellow: '#f5f543',
+                    brightBlue: '#3b8eea',
+                    brightMagenta: '#d670d6',
+                    brightCyan: '#29b8db',
+                    brightWhite: '#e5e5e5'
+                },
+                fontSize: 14,
+                fontFamily: 'Consolas, "Liberation Mono", Menlo, Courier, monospace'
+            });
+
+            terminal.open(document.getElementById('terminal'));
+            terminal.write('Terminal initialized successfully!\r\n');
+            terminal.write('Connecting to Claude session...\r\n');
+            
+            // Connect WebSocket - same as working test
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = protocol + '//' + window.location.host + '/ws/{{.SessionID}}';
+            
+            websocket = new WebSocket(wsUrl);
+            
+            websocket.onopen = () => {
+                terminal.write('\r\n✅ Connected to Claude session!\r\n');
+                
+                // Send terminal input to WebSocket
+                terminal.onData(data => {
+                    if (websocket.readyState === WebSocket.OPEN) {
+                        websocket.send(data);
+                    }
+                });
+            };
+            
+            websocket.onmessage = (event) => {
+                terminal.write(event.data);
+            };
+            
+            websocket.onclose = () => {
+                terminal.write('\r\n⚠️ Connection closed\r\n');
+            };
+            
+            websocket.onerror = (error) => {
+                terminal.write('\r\n❌ Connection error\r\n');
+            };
+            
+            // Focus terminal
+            setTimeout(() => terminal.focus(), 100);
+        });
+    </script>
+</body>
+</html>

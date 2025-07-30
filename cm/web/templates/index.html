@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude Manager - Web Terminal</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>🚀 Claude Manager</h1>
+            <div class="controls">
+                <button id="new-session">New Session</button>
+                <button id="refresh">Refresh</button>
+            </div>
+        </header>
+        
+        <div class="main-content">
+            <div class="sidebar">
+                <h3>Sessions</h3>
+                <div id="sessions-list" class="sessions-container">
+                    <div class="no-sessions">No active sessions</div>
+                </div>
+            </div>
+            
+            <div class="terminal-area">
+                <div class="welcome" id="welcome-screen">
+                    <h2>🚀 Claude Agent Manager</h2>
+                    <p>Manage multiple Claude Code sessions from one interface.</p>
+                    <p><strong>Features:</strong> Switch between sessions, provide feedback, continue conversations</p>
+                    <button class="create-session-btn" onclick="app.showSessionCreator()">Create First Session</button>
+                </div>
+                
+                <!-- Simple terminal area that switches between sessions -->
+                <div id="terminal-area" style="display: none; height: 100%; display: flex; flex-direction: column;">
+                    <div class="terminal-header">
+                        <div class="session-info">
+                            <span id="terminal-title">No Session Selected</span>
+                            <div class="session-controls">
+                                <button class="control-btn" onclick="app.sendFeedback()">💬 Feedback</button>
+                                <button class="control-btn" onclick="app.continuePrompt()">➡️ Continue</button>
+                                <button class="control-btn" onclick="app.pauseSession()">⏸️ Pause</button>
+                            </div>
+                        </div>
+                        <button class="close-terminal" onclick="app.showWelcome()">← Back to Sessions</button>
+                    </div>
+                    <!-- This is our proven simple terminal div -->
+                    <div id="terminal" style="flex: 1; margin: 0; padding: 0;"></div>
+                </div>
+                    
+                    <div id="session-creator" class="session-creator" style="display: none;">
+                        <div class="creator-content">
+                            <h3>Create New Session</h3>
+                            
+                            <div class="form-group">
+                                <label>Session Name:</label>
+                                <input type="text" id="session-name" placeholder="e.g., auth-feature, api-refactor">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Repository Location:</label>
+                                <div class="directory-browser">
+                                    <div class="current-path">
+                                        <span id="current-path-text">Loading...</span>
+                                        <button type="button" id="go-home" class="path-btn">🏠 Home</button>
+                                        <button type="button" id="go-root" class="path-btn">📁 Root</button>
+                                    </div>
+                                    <div class="directory-list" id="directory-list">
+                                        <div class="loading">Loading directories...</div>
+                                    </div>
+                                    <div class="selected-repo">
+                                        <strong>Selected:</strong> <span id="selected-repo-path">None selected</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" id="use-worktree" checked> 
+                                    Create Git Worktree (Recommended)
+                                </label>
+                                <small>Creates an isolated copy for parallel development</small>
+                            </div>
+                            
+                            <div id="worktree-options" class="form-group">
+                                <label>Branch Name:</label>
+                                <input type="text" id="branch-name" placeholder="feature/session-name (auto-generated)">
+                                
+                                <label>Base Branch:</label>
+                                <input type="text" id="base-branch" placeholder="main">
+                            </div>
+                            
+                            <div class="creator-actions">
+                                <button class="btn-primary" onclick="app.createSessionFromForm()">Create Session</button>
+                                <button class="btn-secondary" onclick="app.hideSessionCreator()">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Terminal Popup Modal -->
+    <div id="terminal-popup" class="terminal-popup" style="display: none;">
+        <div class="terminal-popup-content">
+            <div class="terminal-header">
+                <span id="terminal-title">Session Terminal</span>
+                <button class="close-terminal" onclick="app.closeTerminalPopup()">&times;</button>
+            </div>
+            <div id="terminal-container"></div>
+        </div>
+    </div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>

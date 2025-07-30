@@ -1,0 +1,592 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #1e1e1e;
+    color: #ffffff;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Terminal Popup Styles */
+.terminal-popup {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.terminal-popup-content {
+    width: 90%;
+    height: 80%;
+    background: #1e1e1e;
+    border: 2px solid #404040;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+}
+
+.terminal-header {
+    background: #2d2d2d;
+    padding: 1rem;
+    border-bottom: 1px solid #404040;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: 6px 6px 0 0;
+}
+
+.terminal-header span {
+    color: #00ff00;
+    font-weight: bold;
+}
+
+.close-terminal {
+    background: #ff4444;
+    color: white;
+    border: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.close-terminal:hover {
+    background: #ff6666;
+}
+
+/* Single-page terminal styles */
+.terminal-header {
+    background: #2d2d2d;
+    padding: 15px;
+    border-bottom: 1px solid #404040;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.session-info {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.session-info span {
+    color: #00ff00;
+    font-weight: bold;
+    font-size: 16px;
+}
+
+.session-controls {
+    display: flex;
+    gap: 10px;
+}
+
+.control-btn {
+    background: #007acc;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.control-btn:hover {
+    background: #005999;
+}
+
+.close-terminal {
+    background: #666;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.close-terminal:hover {
+    background: #888;
+}
+
+#terminal {
+    background: #1e1e1e;
+    border: none;
+    width: 100%;
+    height: 100%;
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+header {
+    background: #2d2d2d;
+    padding: 1rem;
+    border-bottom: 1px solid #404040;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+header h1 {
+    color: #00ff00;
+    font-size: 1.5rem;
+}
+
+.controls button {
+    background: #007acc;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    margin-left: 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.controls button:hover {
+    background: #005999;
+}
+
+.main-content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.sidebar {
+    width: 300px;
+    background: #252526;
+    border-right: 1px solid #404040;
+    padding: 1rem;
+    overflow-y: auto;
+}
+
+.sidebar h3 {
+    color: #cccccc;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+}
+
+.session-item {
+    background: #2d2d2d;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    border-left: 3px solid #007acc;
+    transition: background 0.2s;
+}
+
+.session-item:hover {
+    background: #404040;
+}
+
+.session-item.active {
+    background: #404040;
+    border-left-color: #00ff00;
+}
+
+.session-name {
+    font-weight: bold;
+    color: #ffffff;
+}
+
+.session-details {
+    font-size: 0.85rem;
+    color: #cccccc;
+    margin-top: 0.25rem;
+}
+
+.session-status {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+}
+
+.status-active {
+    background: #4caf50;
+    color: white;
+}
+
+.status-idle {
+    background: #ff9800;
+    color: white;
+}
+
+.status-starting {
+    background: #2196f3;
+    color: white;
+}
+
+.status-error {
+    background: #f44336;
+    color: white;
+}
+
+.terminal-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+#terminal-tabs {
+    background: #2d2d2d;
+    border-bottom: 1px solid #404040;
+    padding: 0;
+    display: none;
+}
+
+.terminal-tab {
+    display: inline-block;
+    padding: 0.75rem 1rem;
+    background: #1e1e1e;
+    color: #cccccc;
+    border-right: 1px solid #404040;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.terminal-tab.active {
+    background: #2d2d2d;
+    color: #ffffff;
+}
+
+.terminal-tab:hover {
+    background: #404040;
+}
+
+#terminal-container {
+    flex: 1;
+    position: relative;
+}
+
+.terminal {
+    width: 100%;
+    height: 100%;
+    display: none;
+}
+
+.terminal.active {
+    display: block;
+}
+
+.welcome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    text-align: center;
+}
+
+.welcome h2 {
+    color: #00ff00;
+    margin-bottom: 1rem;
+}
+
+.welcome p {
+    color: #cccccc;
+    margin-bottom: 2rem;
+    max-width: 400px;
+}
+
+.create-session-btn {
+    background: #00ff00;
+    color: #1e1e1e;
+    border: none;
+    padding: 1rem 2rem;
+    border-radius: 6px;
+    font-size: 1.1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.create-session-btn:hover {
+    background: #00cc00;
+    transform: translateY(-2px);
+}
+
+.no-sessions {
+    color: #666666;
+    font-style: italic;
+    text-align: center;
+    padding: 2rem 0;
+}
+
+.session-actions {
+    margin-top: 0.5rem;
+}
+
+.kill-btn {
+    background: #dc3545;
+    color: white;
+    border: none;
+    padding: 0.3rem 0.6rem;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.kill-btn:hover {
+    background: #c82333;
+}
+
+/* Session Creator Styles */
+.session-creator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.creator-content {
+    background: #2d2d2d;
+    padding: 2rem;
+    border-radius: 8px;
+    width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.creator-content h3 {
+    color: #00ff00;
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    color: #cccccc;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.form-group input[type="text"],
+.form-group select {
+    width: 100%;
+    padding: 0.75rem;
+    background: #1e1e1e;
+    border: 1px solid #404040;
+    border-radius: 4px;
+    color: #ffffff;
+    font-size: 0.9rem;
+}
+
+.form-group input[type="text"]:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: #007acc;
+}
+
+.form-group input[type="checkbox"] {
+    margin-right: 0.5rem;
+}
+
+.form-group small {
+    display: block;
+    color: #888888;
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
+}
+
+.creator-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+    justify-content: center;
+}
+
+.btn-primary {
+    background: #00ff00;
+    color: #1e1e1e;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 4px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-primary:hover {
+    background: #00cc00;
+}
+
+.btn-secondary {
+    background: #404040;
+    color: #ffffff;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-secondary:hover {
+    background: #555555;
+}
+
+.repo-item {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem;
+    border-bottom: 1px solid #404040;
+}
+
+.repo-name {
+    font-weight: bold;
+    color: #ffffff;
+}
+
+.repo-path {
+    font-size: 0.8rem;
+    color: #888888;
+    margin-left: 0.5rem;
+}
+
+.repo-branch {
+    font-size: 0.8rem;
+    color: #00ff00;
+    margin-left: auto;
+}
+
+/* Directory Browser Styles */
+.directory-browser {
+    border: 1px solid #404040;
+    border-radius: 4px;
+    background: #1e1e1e;
+    overflow: hidden;
+}
+
+.current-path {
+    background: #2d2d2d;
+    padding: 0.75rem;
+    border-bottom: 1px solid #404040;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.current-path span {
+    flex: 1;
+    color: #cccccc;
+    font-family: monospace;
+    font-size: 0.9rem;
+}
+
+.path-btn {
+    background: #404040;
+    color: #cccccc;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.path-btn:hover {
+    background: #555555;
+}
+
+.directory-list {
+    max-height: 200px;
+    overflow-y: auto;
+    background: #1e1e1e;
+}
+
+.directory-item {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    border-bottom: 1px solid #2d2d2d;
+    transition: background 0.2s;
+}
+
+.directory-item:hover {
+    background: #2d2d2d;
+}
+
+.directory-item.selected {
+    background: #007acc;
+    color: #ffffff;
+}
+
+.directory-item.git-repo {
+    background: rgba(0, 255, 0, 0.1);
+    border-left: 3px solid #00ff00;
+}
+
+.directory-item.git-repo.selected {
+    background: #007acc;
+}
+
+.directory-icon {
+    margin-right: 0.5rem;
+    font-size: 1rem;
+}
+
+.directory-name {
+    flex: 1;
+    color: #cccccc;
+}
+
+.git-indicator {
+    font-size: 0.8rem;
+    color: #00ff00;
+    margin-left: 0.5rem;
+}
+
+.selected-repo {
+    padding: 0.75rem;
+    background: #2d2d2d;
+    border-top: 1px solid #404040;
+    color: #cccccc;
+    font-size: 0.9rem;
+}
+
+.selected-repo span {
+    color: #00ff00;
+    font-family: monospace;
+}
+
+.loading {
+    padding: 1rem;
+    text-align: center;
+    color: #888888;
+    font-style: italic;
+}
