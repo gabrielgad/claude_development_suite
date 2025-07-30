@@ -1,9 +1,12 @@
 # Claude Manager (cm) Makefile
 
 # Build variables
-BINARY_NAME=cm
+BINARY_NAME=claude-manager
 BUILD_DIR=build
 GO_FILES=$(shell find . -name '*.go')
+
+# Alternative binary names
+ALIASES=cm claude-web cmgr
 
 # Go build flags
 LDFLAGS=-ldflags "-s -w"
@@ -36,7 +39,20 @@ install: build
 	@cp $(BUILD_DIR)/$(BINARY_NAME) ~/.local/bin/
 	@chmod +x ~/.local/bin/$(BINARY_NAME)
 	@echo "Installed to ~/.local/bin/$(BINARY_NAME)"
-	@echo "Make sure ~/.local/bin is in your PATH"
+	@echo ""
+	@echo "Creating convenient aliases..."
+	@for alias in $(ALIASES); do \
+		ln -sf $(BINARY_NAME) ~/.local/bin/$$alias && echo "  ✅ $$alias -> $(BINARY_NAME)"; \
+	done
+	@echo ""
+	@echo "Add ~/.local/bin to your PATH if not already there:"
+	@echo "  export PATH=\"\$$HOME/.local/bin:\$$PATH\""
+	@echo ""
+	@echo "Available commands:"
+	@echo "  claude-manager  (main binary)"
+	@echo "  cm              (short alias)"
+	@echo "  claude-web      (descriptive alias)"
+	@echo "  cmgr            (manager alias)"
 
 # Install to system-wide location (requires sudo)
 install-system: build
