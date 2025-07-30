@@ -339,7 +339,7 @@ COMMANDS:
     help, -h, --help    Show this help
 
 NON-INTERACTIVE MODE:
-    cw make [dir_name] [branch_name] [base_branch] [install_deps] [copy_env] [claude_prompt]
+    cw make [dir_name] [branch_name] [base_branch] [install_deps] [copy_env] [claude_prompt] [--no-claude]
 
 ARGUMENTS (all optional):
     dir_name      Directory name for worktree (default: auto-generated)
@@ -348,6 +348,7 @@ ARGUMENTS (all optional):
     install_deps  Install npm deps: y/n (default: auto-detect)
     copy_env      Copy .env file: y/n (default: auto-detect)
     claude_prompt Initial Claude prompt (default: empty)
+    --no-claude   Create worktree only, don't start Claude (for cm integration)
 
 EXAMPLES:
     cw                                          # Interactive mode
