@@ -21,42 +21,27 @@ import (
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
+	
+	"github.com/user/claude-manager/domains/session"
+	"github.com/user/claude-manager/domains/terminal"
 )
 
 const VERSION = "2.0.0-web"
 
-// Session represents a Claude Code session
-type Session struct {
-	ID       string    `json:"id"`
-	Name     string    `json:"name"`
-	Path     string    `json:"path"`
-	Branch   string    `json:"branch"`
-	PID      int       `json:"pid"`
-	Status   string    `json:"status"`
-	Created  time.Time `json:"created"`
-	LastSeen time.Time `json:"last_seen"`
-}
 
-// PTYSession manages a pseudoterminal session
-type PTYSession struct {
-	ID      string
-	PTY     *os.File
-	Cmd     *exec.Cmd
-	Session *Session
-	Clients map[*websocket.Conn]bool
-	mu      sync.RWMutex
-}
 
 // SessionManager manages all active sessions
 type SessionManager struct {
-	sessions map[string]*PTYSession
+	sessions map[string]*terminal.PTYSession
 	mu       sync.RWMutex
 }
 
 var (
 	sessionManager = &SessionManager{
-		sessions: make(map[string]*PTYSession),
+		sessions: make(map[string]*terminal.PTYSession),
 	}
+	sessionsManager *session.Manager // Domain-based session manager
+	sessionHandler  *session.Handler // Domain-based session handler
 	upgrader = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Allow all origins for development
@@ -71,6 +56,10 @@ func main() {
 		version = flag.Bool("version", false, "Show version")
 	)
 	flag.Parse()
+
+	// Initialize domain managers
+	sessionsManager = session.NewManager()
+	sessionHandler = session.NewHandler(sessionsManager)
 
 	if *version {
 		fmt.Printf("Claude Manager v%s (Web Terminal Edition)\n", VERSION)
@@ -99,13 +88,18 @@ func startWebServer(port int) {
 	http.HandleFunc("/", handleHome)
 	http.HandleFunc("/favicon.ico", handleFavicon)
 	http.HandleFunc("/terminal/", handleTerminal)
-	http.HandleFunc("/api/sessions", handleSessions)
+	http.HandleFunc("/api/sessions", sessionHandler.HandleSessions)
 	http.HandleFunc("/api/sessions/create", handleCreateSession)
 	http.HandleFunc("/api/sessions/kill", handleKillSession)
 	http.HandleFunc("/api/directories", handleDirectories)
 	http.HandleFunc("/api/git-repos", handleGitRepos)
 	http.HandleFunc("/ws/", handleWebSocket)
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static/"))))
+	// Determine web directory path based on go.mod presence  
+	webStaticDir := "web/static/"
+	if _, err := os.Stat("go.mod"); err != nil {
+		webStaticDir = "cm/web/static/"
+	}
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(webStaticDir))))
 
 	// Create server with graceful shutdown
 	server := &http.Server{
@@ -126,7 +120,7 @@ func startWebServer(port int) {
 		// Close all PTY sessions
 		sessionManager.mu.Lock()
 		for _, session := range sessionManager.sessions {
-			session.cleanup()
+			session.Cleanup()
 		}
 		sessionManager.mu.Unlock()
 
@@ -144,26 +138,24 @@ func startWebServer(port int) {
 }
 
 func ensureWebDirectory() error {
+	// Check if we're in the cm directory (has go.mod)
 	webDir := "web"
+	if _, err := os.Stat("go.mod"); err != nil {
+		// We're not in cm directory, try cm/web
+		webDir = filepath.Join("cm", "web")
+	}
+	
 	staticDir := filepath.Join(webDir, "static")
 	templatesDir := filepath.Join(webDir, "templates")
 
-	// Create directories
-	if err := os.MkdirAll(staticDir, 0755); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(templatesDir, 0755); err != nil {
-		return err
-	}
-
-	// Verify that external files exist, create them if they don't
-	files := map[string]string{
-		filepath.Join(templatesDir, "index.html"): "",
-		filepath.Join(staticDir, "app.css"):       "",
-		filepath.Join(staticDir, "app.js"):        "",
+	// Verify that the required files exist
+	files := []string{
+		filepath.Join(templatesDir, "index.html"),
+		filepath.Join(staticDir, "app.css"),
+		filepath.Join(staticDir, "app.js"),
 	}
 
-	for path := range files {
+	for _, path := range files {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			return fmt.Errorf("required web file missing: %s", path)
 		}
@@ -177,7 +169,13 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	http.ServeFile(w, r, "web/templates/index.html")
+	
+	// Determine template path based on go.mod presence
+	templatePath := "web/templates/index.html"
+	if _, err := os.Stat("go.mod"); err != nil {
+		templatePath = "cm/web/templates/index.html"
+	}
+	http.ServeFile(w, r, templatePath)
 }
 
 func handleTerminal(w http.ResponseWriter, r *http.Request) {
@@ -368,17 +366,6 @@ func handleFavicon(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(favicon))
 }
 
-func handleSessions(w http.ResponseWriter, r *http.Request) {
-	sessionManager.mu.RLock()
-	sessions := make([]*Session, 0, len(sessionManager.sessions))
-	for _, ptySession := range sessionManager.sessions {
-		sessions = append(sessions, ptySession.Session)
-	}
-	sessionManager.mu.RUnlock()
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(sessions)
-}
 
 func handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -386,13 +373,7 @@ func handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Name        string `json:"name"`
-		RepoPath    string `json:"repoPath"`
-		BranchName  string `json:"branchName"`
-		BaseBranch  string `json:"baseBranch"`
-		UseWorktree bool   `json:"useWorktree"`
-	}
+	var req session.CreateRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -555,9 +536,7 @@ func handleKillSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		SessionID string `json:"sessionId"`
-	}
+	var req session.KillRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -571,8 +550,11 @@ func handleKillSession(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionManager.mu.Unlock()
 
+	// Also remove from domain manager
+	sessionsManager.Remove(req.SessionID)
+
 	if exists {
-		ptySession.cleanup()
+		ptySession.Cleanup()
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -778,15 +760,15 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	// Add client to session
-	ptySession.mu.Lock()
+	ptySession.Mu.Lock()
 	ptySession.Clients[conn] = true
-	ptySession.mu.Unlock()
+	ptySession.Mu.Unlock()
 
 	// Remove client when done
 	defer func() {
-		ptySession.mu.Lock()
+		ptySession.Mu.Lock()
 		delete(ptySession.Clients, conn)
-		ptySession.mu.Unlock()
+		ptySession.Mu.Unlock()
 	}()
 
 	// Handle WebSocket messages (terminal input)
@@ -809,7 +791,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	select {}
 }
 
-func createPTYSession(name, path string) (*PTYSession, error) {
+func createPTYSession(name, path string) (*terminal.PTYSession, error) {
 	sessionID := fmt.Sprintf("session_%d", time.Now().Unix())
 
 	// Check if directory exists
@@ -821,27 +803,19 @@ func createPTYSession(name, path string) (*PTYSession, error) {
 	branch := getGitBranch(path)
 
 	// Create PTY session first, then start command
-	session := &Session{
-		ID:       sessionID,
-		Name:     name,
-		Path:     path,
-		Branch:   branch,
-		PID:      0, // Will be set after command starts
-		Status:   "starting",
-		Created:  time.Now(),
-		LastSeen: time.Now(),
+	newSession := session.NewSession(name, path, branch)
+	newSession.ID = sessionID
+
+	ptySession, err := terminal.NewPTYSession(sessionID, newSession)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PTY session: %v", err)
 	}
 
-	ptySession := &PTYSession{
-		ID:      sessionID,
-		Session: session,
-		Clients: make(map[*websocket.Conn]bool),
-	}
-
-	// Store session immediately so UI can show it
+	// Store session in both managers
 	sessionManager.mu.Lock()
 	sessionManager.sessions[sessionID] = ptySession
 	sessionManager.mu.Unlock()
+	sessionsManager.Add(newSession)
 
 	// Start Claude Code with PTY in background
 	go func() {
@@ -866,23 +840,23 @@ func createPTYSession(name, path string) (*PTYSession, error) {
 		ptyFile, err := pty.Start(cmd)
 		if err != nil {
 			log.Printf("Failed to start PTY for session %s: %v", sessionID, err)
-			session.Status = "error"
+			newSession.SetStatus("error")
 			return
 		}
 
 		// Update session with PTY info
 		ptySession.PTY = ptyFile
 		ptySession.Cmd = cmd
-		session.PID = cmd.Process.Pid
-		session.Status = "active"
+		newSession.PID = cmd.Process.Pid
+		newSession.SetStatus("active")
 
 		// Send welcome message and test commands to terminal
 		go func() {
 			time.Sleep(100 * time.Millisecond) // Give PTY time to initialize
 			welcome := fmt.Sprintf("\r\n\033[32m🚀 Claude Manager Session Started\033[0m\r\n")
-			welcome += fmt.Sprintf("\033[90mSession: %s\033[0m\r\n", session.Name)
-			welcome += fmt.Sprintf("\033[90mDirectory: %s\033[0m\r\n", session.Path)
-			welcome += fmt.Sprintf("\033[90mBranch: %s\033[0m\r\n", session.Branch)
+			welcome += fmt.Sprintf("\033[90mSession: %s\033[0m\r\n", newSession.Name)
+			welcome += fmt.Sprintf("\033[90mDirectory: %s\033[0m\r\n", newSession.Path)
+			welcome += fmt.Sprintf("\033[90mBranch: %s\033[0m\r\n", newSession.Branch)
 			welcome += "\r\n"
 			ptySession.PTY.Write([]byte(welcome))
 			
@@ -897,10 +871,10 @@ func createPTYSession(name, path string) (*PTYSession, error) {
 		}()
 
 		// Start output forwarder
-		go ptySession.forwardOutput()
+		go forwardPTYOutput(ptySession)
 
 		// Monitor process
-		go ptySession.monitorProcess()
+		go monitorPTYProcess(ptySession)
 
 		log.Printf("Started session %s with PID %d", sessionID, cmd.Process.Pid)
 	}()
@@ -918,7 +892,7 @@ func getGitBranch(dir string) string {
 	return strings.TrimSpace(string(output))
 }
 
-func (pts *PTYSession) forwardOutput() {
+func forwardPTYOutput(pts *terminal.PTYSession) {
 	buffer := make([]byte, 1024)
 	for {
 		n, err := pts.PTY.Read(buffer)
@@ -935,14 +909,14 @@ func (pts *PTYSession) forwardOutput() {
 			output = strings.ToValidUTF8(string(data), "�")
 		}
 
-		pts.mu.RLock()
+		pts.Mu.RLock()
 		for client := range pts.Clients {
 			if err := client.WriteMessage(websocket.TextMessage, []byte(output)); err != nil {
 				// Client disconnected, will be cleaned up elsewhere
 				continue
 			}
 		}
-		pts.mu.RUnlock()
+		pts.Mu.RUnlock()
 	}
 }
 
@@ -950,22 +924,8 @@ func isValidUTF8(data []byte) bool {
 	return utf8.Valid(data)
 }
 
-func (pts *PTYSession) monitorProcess() {
+func monitorPTYProcess(pts *terminal.PTYSession) {
 	pts.Cmd.Wait()
-	pts.cleanup()
+	pts.Cleanup()
 }
 
-func (pts *PTYSession) cleanup() {
-	if pts.PTY != nil {
-		pts.PTY.Close()
-	}
-	if pts.Cmd != nil && pts.Cmd.Process != nil {
-		pts.Cmd.Process.Kill()
-	}
-
-	pts.mu.Lock()
-	for client := range pts.Clients {
-		client.Close()
-	}
-	pts.mu.Unlock()
-}
